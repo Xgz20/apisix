@@ -52,10 +52,12 @@ local global_lru_fun
 local function fetch_valid_cache(lru_obj, invalid_stale, item_ttl,
                                  item_release, key, version)
     local obj, stale_obj = lru_obj:get(key)
+    -- 对象没有过期，并且版本一致
     if obj and obj.ver == version then
         return obj
     end
 
+    -- 对象过期了，但过期对象版本一致
     if not invalid_stale and stale_obj and stale_obj.ver == version then
         lru_obj:set(key, stale_obj, item_ttl)
         return stale_obj
