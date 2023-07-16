@@ -209,6 +209,7 @@ local function load(plugin_names, wasm_plugin_names)
         unload_plugin(name, ty)
     end
 
+    -- 清空插件插件列表
     core.table.clear(local_plugins)
     core.table.clear(local_plugins_hash)
 
@@ -218,6 +219,7 @@ local function load(plugin_names, wasm_plugin_names)
             ty = PLUGIN_TYPE_HTTP_WASM
             name = value
         end
+        -- 加载插件
         load_plugin(name, local_plugins, ty)
     end
 
