@@ -17,6 +17,8 @@
 #
 -->
 
+# 基于 APISIX 3.2.1 tag 创建的分支
+
 # Apache APISIX API Gateway
 
 <img src="./logos/apisix-white-bg.jpg" alt="APISIX logo" height="150px" align="right" />
