@@ -176,6 +176,11 @@ nginx_config:                     # config for render the template to generate n
   http_configuration_snippet: |
     # Add custom Nginx http configuration to nginx.conf.
     # The configuration should be well indented!
+    lua_shared_dict plugin-limit-conn-by-subscriber 10m;
+    lua_shared_dict plugin-limit-count-by-subscriber 10m;
+    lua_shared_dict plugin-service-breaker 10m;
+    lua_shared_dict plugin-monitor-alert 10m;
+    lua_shared_dict hermes-redis-cluster-slot-lock 1m;
   http_server_configuration_snippet: |
     # Add custom Nginx http server configuration to nginx.conf.
     # The configuration should be well indented!
@@ -231,6 +236,9 @@ nginx_config:                     # config for render the template to generate n
       internal-status: 10m
       plugin-limit-req: 10m
       plugin-limit-count: 10m
+      plugin-limit-conn-by-subscriber: 10m
+      plugin-limit-count-by-subscriber: 10m
+      plugin-monitor-alert: 10m
       prometheus-metrics: 10m
       plugin-limit-conn: 10m
       upstream-healthcheck: 10m
@@ -240,8 +248,10 @@ nginx_config:                     # config for render the template to generate n
       balancer-ewma-locks: 10m
       balancer-ewma-last-touched-at: 10m
       plugin-limit-count-redis-cluster-slot-lock: 1m
+      hermes-redis-cluster-slot-lock: 1m
       tracing_buffer: 10m
       plugin-api-breaker: 10m
+      plugin-service-breaker: 10m
       etcd-cluster-health-check: 10m
       discovery: 1m
       jwks: 1m
@@ -423,12 +433,16 @@ plugins:                          # plugin list (sorted by priority)
   - serverless-pre-function        # priority: 10000
   #- batch-requests                # priority: 4010
   - cors                           # priority: 4000
+  - ip-blacklist                   # priority: 3001
   - ip-restriction                 # priority: 3000
   - ua-restriction                 # priority: 2999
   - referer-restriction            # priority: 2990
   - csrf                           # priority: 2980
+  - uri-whitelist                  # priority: 2970
   - uri-blocker                    # priority: 2900
   - request-validation             # priority: 2800
+  - subscribe                      # priority: 2699
+  - sign-auth                      # priority: 2698
   - openid-connect                 # priority: 2599
   - cas-auth                       # priority: 2597
   - authz-casbin                   # priority: 2560
@@ -450,6 +464,9 @@ plugins:                          # plugin list (sorted by priority)
   - proxy-rewrite                  # priority: 1008
   - workflow                       # priority: 1006
   - api-breaker                    # priority: 1005
+  - service-breaker                # priority: 1900
+  - limit-conn-by-subscriber       # priority: 1889
+  - limit-count-by-subscriber      # priority: 1888
   - limit-conn                     # priority: 1003
   - limit-count                    # priority: 1002
   - limit-req                      # priority: 1001
@@ -459,6 +476,7 @@ plugins:                          # plugin list (sorted by priority)
   - traffic-split                  # priority: 966
   - redirect                       # priority: 900
   - response-rewrite               # priority: 899
+  - response-status-rewrite        # priority: 898
   - degraphql                      # priority: 509
   - kafka-proxy                    # priority: 508
   #- dubbo-proxy                   # priority: 507
@@ -467,6 +485,8 @@ plugins:                          # plugin list (sorted by priority)
   - public-api                     # priority: 501
   - prometheus                     # priority: 500
   - datadog                        # priority: 495
+  - monitor-alert                  # priority: 415
+  - custom-es-logger               # priority: 414
   - elasticsearch-logger           # priority: 413
   - echo                           # priority: 412
   - loggly                         # priority: 411
@@ -642,3 +662,32 @@ deployment:
       verify: true                  # whether to verify the etcd endpoint certificate when setup a TLS connection to etcd,
                                     # the default value is true, e.g. the certificate will be verified strictly.
       #sni:                         # the SNI for etcd TLS requests. If missed, the host part of the URL will be used.
+rio:
+  header:
+    paasid:
+      - x-rio-paasid
+      - x-tif-paasid
+    nonce:
+      - x-rio-nonce
+      - x-tif-nonce
+    timestamp:
+      - x-rio-timestamp
+      - x-tif-timestamp
+    signature:
+      - x-rio-signature
+      - x-tif-signature
+
+deploy:
+  # 值枚举为 local 或者 cluster，缺省值为 local
+  mode: cluster
+cluster_conf:
+  redis:
+    # 值枚举为 redis 或者 redis-cluster，缺省值为 redis-cluster
+    redis_policy: redis-cluster
+#    redis_host: 172.31.53.208
+#    redis_port: 6379
+    redis_cluster_nodes:
+      - 172.30.15.213:7001
+      - 172.30.15.213:7002
+      - 172.30.15.213:7003
+    redis_cluster_name: my-redis-cluster
