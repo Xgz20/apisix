@@ -173,12 +173,12 @@ local ALARM_RULE_TYPE = {
 
 
 local function get_logger_entry(conf, ctx, alarm_rule, log_entry)
-    --core.log.warn("xgz【normal】=>", core.json.encode(alarm_rule, true))
+    --core.log.notice("xgz【normal】=>", core.json.encode(alarm_rule, true))
     local start_time = ngx_now()
 
     -- 路由信息
     local matched_route = ctx.matched_route and ctx.matched_route.value
-    core.log.warn("xgz【normal】matched_route =>", core.json.encode(matched_route, true))
+    --core.log.notice("xgz【normal】matched_route =>", core.json.encode(matched_route, true))
 
     local route_name
     if matched_route then
@@ -201,7 +201,7 @@ local function get_logger_entry(conf, ctx, alarm_rule, log_entry)
         alarm_level = alarm_rule.alarm_level
     }
 
-    core.log.warn("xgz【normal】alarm_log =>", core.json.encode(alarm_log, true))
+    --core.log.notice("xgz【normal】alarm_log =>", core.json.encode(alarm_log, true))
 
     local result = core.json.encode({
         create = {
@@ -240,7 +240,7 @@ local function send_to_elasticsearch(conf, entries)
         headers["Authorization"] = authorization
     end
 
-    core.log.warn("xgz【normal】=>", "uri: ", uri, ", body: ", body)
+    core.log.notice("xgz【normal】=>", "uri: ", uri, ", body: ", body)
 
     httpc:set_timeout(conf.timeout * 1000)
     local resp, err = httpc:request_uri(uri, {
@@ -378,7 +378,7 @@ local get_script = core.string.compress_script([=[
 
 
 local function set_data_to_redis(conf, key, value)
-    core.log.warn("xgz【normal】conf=>", core.json.encode(conf, true))
+    --core.log.notice("xgz【normal】conf=>", core.json.encode(conf, true))
 
     local red, err = redis_cli(conf)
     if not red then
@@ -395,7 +395,7 @@ end
 
 
 local function get_data_from_redis(conf, key)
-    core.log.warn("xgz【normal】conf=>", core.json.encode(conf, true))
+    --core.log.notice("xgz【normal】conf=>", core.json.encode(conf, true))
 
     local red, err = redis_cli(conf)
     if not red then
@@ -410,7 +410,7 @@ local function get_data_from_redis(conf, key)
         core.log.error("xgz【normal】redis eval get err=>", err)
         return nil
     else
-        core.log.warn("xgz【normal】redis eval get result=>", res)
+        core.log.notice("xgz【normal】redis eval get result=>", res)
         return res
     end
 end
@@ -469,15 +469,19 @@ end
 
 
 local function check_if_alerted(conf, ctx, alarm_rule_id, alarm_rule, validation_metadata)
-    local log_warn = function(log_type, ...)
-            core.log.warn(str_format("xgz【%s】【%s】", log_type, alarm_rule_id), ...)
+    local is_debug = false
+    local log_notice = function(log_type, ...)
+            if not is_debug then
+                return
+            end
+            core.log.notice(str_format("xgz【%s】【%s】", log_type, alarm_rule_id), ...)
         end
 
-    log_warn("normal", "--------------------------------监控告警start-----------------------------------")
+    log_notice("normal", "--------------------------------监控告警start-----------------------------------")
 
     -- 前置条件校验，并获取本次请求增量数据（调用次数、延时 or 流入流量）
     local ok, increment_value = validate_alarm_type_condition(alarm_rule.alarm_type, validation_metadata)
-    core.log.warn("xgz【normal】increment_value=>", increment_value)
+    core.log.notice("xgz【normal】increment_value=>", increment_value)
     if not ok then
         return false
     end
@@ -490,12 +494,14 @@ local function check_if_alerted(conf, ctx, alarm_rule_id, alarm_rule, validation
     local running_sampler = get_opt(sampling_key, conf)
     local initial_sampler = init_sampling_info(validation_metadata.call_time, increment_value)
 
-    log_warn("normal", "alarm_rule_id=>", alarm_rule_id)
-    log_warn("normal", "alarm_rule=>", core.json.encode(alarm_rule, true))
-    log_warn("normal", "sampling_key=>", sampling_key)
-    log_warn("normal", "running_sampler=>", core.json.encode(running_sampler, true))
-    log_warn("normal", "initial_sampler=>", core.json.encode(initial_sampler, true))
-    log_warn("normal", "call_time=>", call_time, "|", get_time_str(call_time))
+    if is_debug then
+        log_notice("normal", "alarm_rule_id=>", alarm_rule_id)
+        log_notice("normal", "alarm_rule=>", core.json.encode(alarm_rule, true))
+        log_notice("normal", "sampling_key=>", sampling_key)
+        log_notice("normal", "running_sampler=>", core.json.encode(running_sampler, true))
+        log_notice("normal", "initial_sampler=>", core.json.encode(initial_sampler, true))
+        log_notice("normal", "call_time=>", call_time, "|", get_time_str(call_time))
+    end
 
     -- 重置采样器
     local reset_sampler = function() set_opt(sampling_key, initial_sampler, conf) end
@@ -504,30 +510,30 @@ local function check_if_alerted(conf, ctx, alarm_rule_id, alarm_rule, validation
     if running_sampler then
         -- 已有采样记录
         local start_sampling_time = running_sampler.start_sampling_time
-        log_warn("normal", "start_sampling_time=>", start_sampling_time, "|", get_time_str(start_sampling_time))
+        log_notice("normal", "start_sampling_time=>", start_sampling_time, "|", get_time_str(start_sampling_time))
         local pass_minutes = calculate_minute_difference(call_time, start_sampling_time)
-        log_warn("normal", "pass_minutes=>",
+        log_notice("normal", "pass_minutes=>",
                 calculate_minute_difference(call_time, start_sampling_time, true))
 
         -- 监控周期（分钟）
         local monitor_period = alarm_rule.monitor_period
-        log_warn("normal", "monitor_period=>", monitor_period)
+        log_notice("normal", "monitor_period=>", monitor_period)
 
         -- step2：判断是否超过单个监控周期
         if pass_minutes >= monitor_period then
             local next_sampling_time = start_sampling_time + monitor_period * 60 * 1000
-            log_warn("normal", "next_sampling_time=>", next_sampling_time, "|", get_time_str(next_sampling_time))
+            log_notice("normal", "next_sampling_time=>", next_sampling_time, "|", get_time_str(next_sampling_time))
             pass_minutes = calculate_minute_difference(call_time, next_sampling_time)
-            log_warn("normal", "next pass_minutes=>",
+            log_notice("normal", "next pass_minutes=>",
                     calculate_minute_difference(call_time, next_sampling_time, true))
 
-            log_warn("normal", "------------------------------------监控告警end-------------------------------")
+            log_notice("normal", "------------------------------------监控告警end-------------------------------")
 
             -- step3：超过了单个监控周期，继续判断是否在下个监控周期内
             if pass_minutes > 0 then
                 -- 不在下个监控周期内，清空历史采样数据并重新初始化
                 reset_sampler()
-                log_warn("alert", "不在下个监控周期内，清空历史采样数据并重新初始化")
+                log_notice("alert", "不在下个监控周期内，清空历史采样数据并重新初始化")
                 return false
             else
                 -- step4：在下个监控周期内，判断是否超过阈值
@@ -537,19 +543,19 @@ local function check_if_alerted(conf, ctx, alarm_rule_id, alarm_rule, validation
                     if is_exceeding_period(running_sampler, alarm_rule) then
                         -- 超过告警规则设置的持续周期数目，则进行告警，并重新采样计数
                         reset_sampler()
-                        log_warn("alert", "超过告警规则设置的持续周期数目，则进行告警，并重新采样计数")
+                        log_notice("alert", "超过告警规则设置的持续周期数目，则进行告警，并重新采样计数")
                         return true
                     else
                         -- 未超过告警规则设置的持续周期数目，则用当前值更新采样器，并将持续周期数+1
                         update_sampling_info(running_sampler, increment_value, next_sampling_time, true)
                         set_opt(sampling_key, running_sampler, conf)
-                        log_warn("alert", "未超过告警规则设置的持续周期数目，则用当前值更新采样器，并将持续周期数+1")
+                        log_notice("alert", "未超过告警规则设置的持续周期数目，则用当前值更新采样器，并将持续周期数+1")
                         return false
                     end
                 else
                     -- 未超过告警阈值，则重置采样器
                     reset_sampler()
-                    log_warn("alert", "未超过告警阈值，则重置采样器")
+                    log_notice("alert", "未超过告警阈值，则重置采样器")
                     return false
                 end
             end
@@ -557,13 +563,13 @@ local function check_if_alerted(conf, ctx, alarm_rule_id, alarm_rule, validation
             -- 还在单个采样周期内，则更新采样器
             update_sampling_info(running_sampler, increment_value, start_sampling_time, false)
             set_opt(sampling_key, running_sampler, conf)
-            log_warn("alert", "还在单个采样周期内，则更新采样器")
+            log_notice("alert", "还在单个采样周期内，则更新采样器")
             return false
         end
     else
         -- 之前没有采样记录，则初始化采样器
         reset_sampler()
-        log_warn("alert", "之前没有采样记录，则初始化采样器")
+        log_notice("alert", "之前没有采样记录，则初始化采样器")
         return false
     end
 end
@@ -575,8 +581,8 @@ end
 
 
 local function async_check(premature, conf, ctx , validation_metadata, log_entry)
-    --core.log.warn("xgz【conf】async_check=>", core.json.encode(conf, true))
-    --core.log.warn("xgz【ctx】async_check=>", core.json.encode(ctx, true))
+    --core.log.notice("xgz【conf】async_check=>", core.json.encode(conf, true))
+    --core.log.notice("xgz【ctx】async_check=>", core.json.encode(ctx, true))
     local start_time = ngx_now()
 
     if premature then
@@ -585,7 +591,7 @@ local function async_check(premature, conf, ctx , validation_metadata, log_entry
     -- 是否告警
     for alarm_rule_id, alarm_rule in pairs(conf.all_alarm_rule) do
         if not alarm_rule.enable then
-            core.log.warn(str_format("告警规则【%s】disabled", alarm_rule_id))
+            core.log.warn("告警规则【", alarm_rule_id, "】disabled")
             goto CONTINUE
         end
 
@@ -648,11 +654,15 @@ function _M.log(conf, ctx)
         latency = log_entry.latency
     }
 
-    core.log.warn("xgz【normal】validation_metadata=>",  core.json.encode(validation_metadata, true))
+    --core.log.notice("xgz【normal】validation_metadata=>",  core.json.encode(validation_metadata, true))
 
-    local my_ctx = deepcopy(ctx)
+    local my_ctx = {}
+    my_ctx.var = {}
+    my_ctx.route_id = route_id
+    my_ctx.matched_route = ctx.matched_route
     my_ctx.var.route_id = route_id
     my_ctx.var.server_addr = ctx.var.server_addr
+    --core.log.notice("my_ctx: ", core.json.encode(my_ctx, true))
     local ok, err = ngx.timer.at(0, async_check, conf, my_ctx, validation_metadata, log_entry)
     if not ok then
         core.log.error(ngx.ERR, "Failed to create timer: ", err)

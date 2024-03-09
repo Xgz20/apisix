@@ -59,9 +59,8 @@ end
 
 
 function _M.rewrite(conf, ctx)
-    core.log.warn("uri: ", ctx.var.request_uri)
-
     local request_uri = ctx.var.request_uri
+    core.log.notice("uri: ", request_uri)
     if request_uri:sub(-1) == "/" then
         request_uri = request_uri:sub(1, -2)
     end
@@ -82,7 +81,7 @@ function _M.rewrite(conf, ctx)
         conf.normal_allowed_uris = normal_allowed_uris
         conf.site_allowed_uris_concat = core.table.concat(site_allowed_uris, "|")
 
-        core.log.info("normal_allowed_uris: ", core.json.encode(conf.normal_allowed_uris, true))
+        --core.log.info("normal_allowed_uris: ", core.json.encode(conf.normal_allowed_uris, true))
         core.log.info("site_allowed_uris_concat: ", conf.site_allowed_uris_concat)
     end
 

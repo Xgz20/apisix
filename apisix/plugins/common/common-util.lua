@@ -20,7 +20,7 @@ local function _perf_log(process_name, ...)
     local is_open = false
     if is_open then
         local log_type = "perf_test"
-        core.log.alert(str_format("xgz【%s】【%s】cost time =>", log_type, process_name), ...)
+        core.log.notice(str_format("xgz【%s】【%s】cost time =>", log_type, process_name), ...)
     end
 end
 
@@ -70,7 +70,7 @@ _M.get_header_value = _get_header_value
 
 function _M.get_subscriber_id(ctx)
     local req_key = ctx.subscriber_id
-    core.log.info("xgz【normal】ctx.subscriber_key =>", ctx.subscriber_id)
+    core.log.notice("xgz【normal】ctx.subscriber_key =>", req_key)
 
     if not req_key then
         local headers = ctx.headers
@@ -84,7 +84,7 @@ function _M.get_subscriber_id(ctx)
             return nil
         end
     end
-    core.log.info("xgz【normal】req_key =>", req_key)
+    core.log.notice("xgz【normal】req_key =>", req_key)
     return req_key
 end
 
@@ -96,7 +96,7 @@ end
 
 
 local function new_redis(conf)
-    core.log.info("xgz【normal】=>", "create redis-cli")
+    core.log.notice("xgz【normal】=>", "create redis-cli")
     --core.log.warn("xgz【conf】=>", core.json.encode(conf, true))
     local red = redis_new()
     local timeout = conf.redis_timeout or 1000    -- 1sec
@@ -134,7 +134,7 @@ end
 
 
 local function new_redis_cluster(conf)
-    core.log.warn("xgz【normal】=>", "create redis-cluster")
+    core.log.notice("xgz【normal】=>", "create redis-cluster")
 
     local config = {
         -- can set different name for different redis cluster

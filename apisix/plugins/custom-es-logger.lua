@@ -245,6 +245,19 @@ local function get_logger_entry(conf, ctx)
         backend_addr = "UNKNOWN"
     end
 
+    -- 协议信息
+    local scheme = ctx.upstream_scheme
+    local upstream_upgrade = ctx.var.upstream_upgrade
+    core.log.notice("scheme: ", scheme)
+    core.log.notice("ctx.var.upstream_upgrade: ", upstream_upgrade)
+    if not scheme then
+        scheme = "UNKNOWN"
+    else
+        if upstream_upgrade == "websocket" then
+            scheme = "websocket"
+        end
+    end
+
     local date_string = os.date("%Y-%m-%d %H:%M:%S", entry.start_time / 1000)
     local date_table = {}
     date_table.year, date_table.month, date_table.day, date_table.hour, date_table.min,
@@ -253,7 +266,7 @@ local function get_logger_entry(conf, ctx)
 
     local call_result
     local error_info
-    if entry.response.status == 200 then
+    if entry.response.status == 200 or entry.response.status == 101 then
         -- 适配被拦截时(IP黑名单、白名单等)，按照里约网关规格返回响应码200场景
         if ctx.rio_rsp_body then
             call_result = 0
@@ -286,7 +299,8 @@ local function get_logger_entry(conf, ctx)
         client_ip = entry.client_ip,
         call_result = call_result,
         error_info = error_info,
-        hour = hour
+        hour = hour,
+        scheme = scheme
     }
 
     local result = core.json.encode({

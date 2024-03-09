@@ -4,8 +4,8 @@
 --- @date: 2023/9/11
 ---
 
-local limit_local_new      = require("resty.limit.count").new
 local core                 = require("apisix.core")
+local apisix_plugin        = require("apisix.plugin")
 local common_util          = require("apisix.plugins.common.common-util")
 local intercept_result     = common_util.intercept_result
 local get_subscriber_id    = common_util.get_subscriber_id
@@ -16,14 +16,15 @@ local ngx                  = ngx
 local ngx_now              = ngx.now
 
 local plugin_name = "limit-count-by-subscriber"
-local limit_redis_cluster_new
+
+local limit_local_new
 local limit_redis_new
 do
-    local redis_src = "apisix.plugins.limit-count.limit-count-redis"
-    limit_redis_new = require(redis_src).new
+    local local_src = "apisix.plugins.limit-count.limit-count-local-subscriber"
+    limit_local_new = require(local_src).new
 
-    local cluster_src = "apisix.plugins.limit-count.limit-count-redis-cluster"
-    limit_redis_cluster_new = require(cluster_src).new
+    local redis_src = "apisix.plugins.limit-count.limit-count-redis-subscriber"
+    limit_redis_new = require(redis_src).new
 end
 local lrucache = core.lrucache.new({
     type = 'plugin', serial_creating = true,
@@ -85,52 +86,57 @@ local function create_limit_obj(conf, ctx)
     core.log.info("create new limit-count plugin instance")
 
     local req_key = ctx.subscriber_id
-    local item_count = 0
-    local item_time_window = 0
     if conf.apps and conf.apps[req_key] ~= nil then
-        item_count = conf.apps[req_key].count
-        item_time_window = conf.apps[req_key].time_window
-    else
-        item_count = conf.default_count
-        item_time_window = conf.default_time_window
-
+        local subscriber_limit_info = conf.apps[req_key]
+        conf.subscriber_count = subscriber_limit_info.count
+        conf.subscriber_time_window = subscriber_limit_info.time_window
     end
 
     if not conf.policy or conf.policy == "local" then
-        return limit_local_new("plugin-" .. plugin_name, item_count,
-                item_time_window)
+        return limit_local_new("plugin-" .. plugin_name, conf)
     end
 
-    if conf.redis_policy == "redis" then
-        return limit_redis_new("plugin-" .. plugin_name,
-                item_count, item_time_window, conf)
-    end
-
-    if conf.redis_policy == "redis-cluster" then
-        return limit_redis_cluster_new("plugin-" .. plugin_name, item_count,
-                item_time_window, conf)
+    if conf.policy == "cluster" then
+        return limit_redis_new("plugin-" .. plugin_name, conf)
     end
 
     return nil
 end
 
 
-local function gen_limit_key(ctx, conf)
-    local key
+local function gen_subscriber_limit_key(ctx, conf, plugin_conf_version)
     local req_key = ctx.var[conf.key]
-    core.log.warn("req_key: ", req_key)
+    core.log.notice("req_key: ", req_key)
     -- 判断是否设置了订阅者级别的流控
     if conf.apps and conf.apps[req_key] ~= nil then
         local limit_key = req_key .. "#" .. conf.scope
-        key = limit_key or ""
-    else
-        -- 没有设置订阅者级别的流控，则共用这个路由的默认流控
-        key = conf.scope
+        return "#" .. limit_key .. "#" .. ctx.conf_type .. "#" .. plugin_conf_version
     end
 
-    core.log.warn("limit key: ", key)
+    return nil
+end
 
-    return "#" .. key .. "#" .. ctx.conf_type .. "#" .. ctx.conf_version
+
+local function gen_service_limit_key(ctx, conf, plugin_conf_version)
+    return "#" .. conf.scope .. "#" .. ctx.conf_type .. "#" .. plugin_conf_version
+end
+
+
+local function parse_limit_result(limit_result)
+    --core.log.notice("limit_result: ", core.json.encode(limit_result))
+    local subscriber_limit_result = limit_result[1]
+    local subscriber_delay = subscriber_limit_result[1]
+    local subscriber_remaining = subscriber_limit_result[2]
+
+    local service_limit_result = limit_result[2]
+    local service_delay = service_limit_result[1]
+    local service_remaining = service_limit_result[2]
+
+    if not subscriber_delay then
+        return subscriber_delay, subscriber_remaining
+    else
+        return service_delay, service_remaining
+    end
 end
 
 
@@ -141,13 +147,11 @@ end
 
 function _M.access(conf, ctx)
     local start_time = ngx_now()
-    core.log.warn("conf_version: ", ctx.conf_version)
+    core.log.notice("conf_version: ", ctx.conf_version)
 
     if conf.apps == nil and conf.default_count == nil then
         return
     end
-
-    init_plugin_metadata(conf, cluster_info)
 
     local req_key = get_subscriber_id(ctx)
     if not req_key then
@@ -157,10 +161,20 @@ function _M.access(conf, ctx)
         return
     end
 
+    init_plugin_metadata(conf, cluster_info)
+
+    local plugin_conf_version = apisix_plugin.conf_version(conf)
+    core.log.notice("plugin_conf_version: ", plugin_conf_version)
+
     local lim, err = core.lrucache.plugin_ctx(lrucache, ctx, conf.policy, create_limit_obj, conf, ctx)
 
+    local subscriber_limit_key = gen_subscriber_limit_key(ctx, conf, plugin_conf_version)
+    local service_limit_key = gen_service_limit_key(ctx, conf, plugin_conf_version)
+    core.log.notice("subscriber_limit_key: ", subscriber_limit_key)
+    core.log.notice("service_limit_key: ", service_limit_key)
     if lim then
-        local delay, remaining = lim:incoming(gen_limit_key(ctx, conf), true)
+        local limit_result = lim:incoming_with_subscriber(subscriber_limit_key, service_limit_key, true, conf)
+        local delay, remaining = parse_limit_result(limit_result)
         if not delay then
             local err = remaining
             if err == "rejected" then
@@ -173,16 +187,16 @@ function _M.access(conf, ctx)
                 return 500, {error_msg = "failed to limit count, please check the configuration: " .. err}
             end
         end
-        local item_count = 0
-        local item_time_window = 0
-        if conf.apps and conf.apps[req_key] ~= nil then
-            item_count = conf.apps[req_key].count
-        else
-            item_count = conf.default_count
-
-        end
-        core.response.set_header("X-RateLimit-Limit", item_count,
-                "X-RateLimit-Remaining", remaining)
+        --local item_count = 0
+        --local item_time_window = 0
+        --if conf.apps and conf.apps[req_key] ~= nil then
+        --    item_count = conf.apps[req_key].count
+        --else
+        --    item_count = conf.default_count
+        --
+        --end
+        --core.response.set_header("X-RateLimit-Limit", item_count,
+        --        "X-RateLimit-Remaining", remaining)
     else
         core.log.error("failed to fetch limit.count object: ", err)
         if conf.error_interrupt then
